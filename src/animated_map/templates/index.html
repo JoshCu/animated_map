@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Animated Streamflow Visualizer</title>
+        <script src="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.js"></script>
+        <script src="https://unpkg.com/pmtiles@3.0.6/dist/pmtiles.js"></script>
+        <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+        <link
+            href="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.css"
+            rel="stylesheet"
+        />
+        <link
+            rel="stylesheet"
+            href="{{ url_for('static', filename='css/style.css') }}"
+        />
+    </head>
+    <body>
+        <header>
+            <h1>Animated Streamflow Visualizer</h1>
+            <p class="subtitle">
+                Drop GeoPackage and NetCDF files to visualize streamflow
+            </p>
+        </header>
+
+        <main>
+            <div id="map"></div>
+
+            <div class="drop-zone" id="dropZone">
+                <div>📂 Select Data Folder</div>
+                <div class="file-status">
+                    <small
+                        >Choose folder containing config/*.gpkg and
+                        outputs/troute/troute_*.nc</small
+                    >
+                </div>
+                <div id="fileStatus"></div>
+                <button class="load-local-btn" id="loadLocalBtn">
+                    📂 Browse for Folder
+                </button>
+            </div>
+
+            <div class="legend" id="legend">
+                <h3>Flow Volume (m³/s)</h3>
+                <div class="legend-gradient"></div>
+                <div class="legend-labels">
+                    <span>Low</span>
+                    <span>High</span>
+                </div>
+            </div>
+
+            <button
+                class="reset-view-button"
+                id="resetViewButton"
+                style="display: none"
+            >
+                🎯 Reset View
+            </button>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div>Processing data...</div>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+        </main>
+
+        <div class="timeline-container" id="timelineContainer">
+            <div class="timeline-controls">
+                <button class="play-button" id="playButton">▶ Play</button>
+
+                <div class="speed-control">
+                    <label>Speed:</label>
+                    <select id="speedSelect">
+                        <option value="0.5">0.5x</option>
+                        <option value="1" selected>1x</option>
+                        <option value="2">2x</option>
+                        <option value="5">5x</option>
+                    </select>
+                </div>
+
+                <div class="resample-control">
+                    <label for="timelineResampleSelect">Resample:</label>
+                    <select id="timelineResampleSelect">
+                        <option value="1" selected>Hourly</option>
+                        <option value="24">Daily</option>
+                        <option value="168">Weekly</option>
+                        <option value="730">Monthly</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <input
+                        type="number"
+                        id="timelineCustomResample"
+                        placeholder="Hours"
+                        style="display: none"
+                        min="1"
+                    />
+                </div>
+
+                <div class="time-display" id="timeDisplay">
+                    <div id="timeStep">Step -- / --</div>
+                    <div id="timeDate">--</div>
+                </div>
+            </div>
+
+            <div class="timeline-slider">
+                <input
+                    type="range"
+                    class="slider"
+                    id="timeSlider"
+                    min="0"
+                    max="100"
+                    value="0"
+                />
+            </div>
+        </div>
+
+        <div class="plot-container" id="plotContainer" style="display: none">
+            <div class="plot-header">
+                <h3 id="plotTitle">Flowpath Time Series</h3>
+                <div class="plot-controls">
+                    <div class="toggle-buttons">
+                        <button
+                            class="toggle-btn active"
+                            id="toggleFlow"
+                            data-variable="flow"
+                        >
+                            Flow
+                        </button>
+                        <button
+                            class="toggle-btn active"
+                            id="toggleVelocity"
+                            data-variable="velocity"
+                        >
+                            Velocity
+                        </button>
+                        <button
+                            class="toggle-btn active"
+                            id="toggleDepth"
+                            data-variable="depth"
+                        >
+                            Depth
+                        </button>
+                    </div>
+                    <div class="resample-control">
+                        <label for="resampleSelect">Resample:</label>
+                        <select id="resampleSelect">
+                            <option value="1" selected>Hourly</option>
+                            <option value="24">Daily</option>
+                            <option value="168">Weekly</option>
+                            <option value="730">Monthly</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <input
+                            type="number"
+                            id="customResample"
+                            placeholder="Hours"
+                            style="display: none"
+                            min="1"
+                        />
+                    </div>
+                </div>
+                <button class="close-plot" id="closePlot">×</button>
+            </div>
+            <div id="timeSeries"></div>
+        </div>
+
+        <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    </body>
+</html>
