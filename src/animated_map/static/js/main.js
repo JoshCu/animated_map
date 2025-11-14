@@ -11,7 +11,7 @@ const map = new maplibregl.Map({
 });
 
 // Global variables
-let flowpathsData = null;
+let featureIds = [];
 let gpkgFilename = null;
 let netcdfFilename = null;
 let timeSteps = [];
@@ -26,6 +26,7 @@ let minFlowValue = Infinity;
 let mapBounds = null;
 let selectedFlowpathId = null;
 let hoverPopup = null;
+let hoveredFeatureId = null; // Track which feature is hovered
 let timelineResampleInterval = 1;
 
 // File handling
@@ -131,79 +132,11 @@ async function loadLocalFilesFromBrowser(files, folderName) {
 
     const data = await response.json();
 
-    // Update file status display
-    fileStatus.innerHTML = `<div class="file-loaded">✓ ${gpkgFile.name}</div>`;
-    fileStatus.innerHTML += `<div class="file-loaded">✓ ${ncFile.name}</div>`;
-
-    // Process GeoPackage data
-    flowpathsData = data.geopackage;
-    console.log(
-      `Loaded ${flowpathsData.features.length} flowpaths from folder`,
-    );
-
-    // Zoom to flowpaths
-    zoomToFlowpaths();
-
-    // Process NetCDF data
-    const netcdfData = data.netcdf;
-    timeSteps = netcdfData.time_steps;
-    const featureIds = netcdfData.feature_ids;
-    const flowDataArray = netcdfData.flow;
-    const velocityDataArray = netcdfData.velocity;
-    const depthDataArray = netcdfData.depth;
-
-    // Organize data by time and feature
-    timeSteps = netcdfData.time_steps;
-    flowData = {};
-    velocityData = {};
-    depthData = {};
-    const numTimes = netcdfData.num_times;
-    const numFeatures = netcdfData.num_features;
-
-    // Reset min/max for color scaling
-    maxFlowValue = 0;
-    minFlowValue = Infinity;
-
-    for (let t = 0; t < numTimes; t++) {
-      flowData[t] = {};
-      if (velocityDataArray) velocityData[t] = {};
-      if (depthDataArray) depthData[t] = {};
-
-      for (let f = 0; f < numFeatures; f++) {
-        const featureId = featureIds[f];
-
-        // Ensure ID has "wb-" prefix to match GeoPackage
-        const idStr = String(featureId);
-        const flowId = idStr.startsWith("wb-") ? idStr : `wb-${idStr}`;
-
-        const flowValue = flowDataArray[t][f];
-        flowData[t][flowId] = flowValue;
-
-        if (velocityDataArray) {
-          velocityData[t][flowId] = velocityDataArray[t][f];
-        }
-
-        if (depthDataArray) {
-          depthData[t][flowId] = depthDataArray[t][f];
-        }
-
-        // Track min/max for color scaling
-        if (flowValue > maxFlowValue) maxFlowValue = flowValue;
-        if (flowValue < minFlowValue && flowValue > 0) minFlowValue = flowValue;
-      }
-    }
-
-    console.log(
-      `Loaded ${numTimes} time steps with ${numFeatures} features (resampled: ${netcdfData.resample_hours}h)`,
-    );
-    console.log(
-      `Flow range: ${minFlowValue.toFixed(2)} - ${maxFlowValue.toFixed(2)}`,
-    );
-
-    dropZone.classList.add("loaded");
-
-    // Setup visualization
-    setupVisualization();
+    // Process and visualize data using unified function
+    processDataAndVisualize(data.geopackage, data.netcdf, {
+      geopackage: gpkgFile.name,
+      netcdf: ncFile.name,
+    });
   } catch (error) {
     console.error("Error loading files from folder:", error);
     showError(`Error loading files: ${error.message}`);
@@ -232,83 +165,8 @@ async function loadLocalFiles(folderPath = null) {
 
     const data = await response.json();
 
-    // Update file status display
-    fileStatus.innerHTML = `<div class="file-loaded">✓ ${data.files.geopackage}</div>`;
-    fileStatus.innerHTML += `<div class="file-loaded">✓ ${data.files.netcdf}</div>`;
-
-    // Process GeoPackage data
-    flowpathsData = data.geopackage;
-    console.log(
-      `Loaded ${flowpathsData.features.length} flowpaths from local file`,
-    );
-    console.log(
-      "Sample GeoPackage IDs:",
-      flowpathsData.features.slice(0, 5).map((f) => f.properties.id),
-    );
-
-    // Zoom to flowpaths immediately after loading
-    zoomToFlowpaths();
-
-    // Process NetCDF data
-    const netcdfData = data.netcdf;
-    timeSteps = netcdfData.time_steps;
-    const featureIds = netcdfData.feature_ids;
-    const flowDataArray = netcdfData.flow;
-    const velocityDataArray = netcdfData.velocity;
-    const depthDataArray = netcdfData.depth;
-
-    // Organize data by time and feature
-    timeSteps = netcdfData.time_steps;
-    flowData = {};
-    velocityData = {};
-    depthData = {};
-    const numTimes = netcdfData.num_times;
-    const numFeatures = netcdfData.num_features;
-
-    // Reset min/max for color scaling
-    maxFlowValue = 0;
-    minFlowValue = Infinity;
-
-    for (let t = 0; t < numTimes; t++) {
-      flowData[t] = {};
-      if (velocityDataArray) velocityData[t] = {};
-      if (depthDataArray) depthData[t] = {};
-
-      for (let f = 0; f < numFeatures; f++) {
-        const featureId = featureIds[f];
-
-        // Ensure ID has "wb-" prefix to match GeoPackage
-        const idStr = String(featureId);
-        const flowId = idStr.startsWith("wb-") ? idStr : `wb-${idStr}`;
-
-        const flowValue = flowDataArray[t][f];
-        flowData[t][flowId] = flowValue;
-
-        if (velocityDataArray) {
-          velocityData[t][flowId] = velocityDataArray[t][f];
-        }
-
-        if (depthDataArray) {
-          depthData[t][flowId] = depthDataArray[t][f];
-        }
-
-        // Track min/max for color scaling
-        if (flowValue > maxFlowValue) maxFlowValue = flowValue;
-        if (flowValue < minFlowValue && flowValue > 0) minFlowValue = flowValue;
-      }
-    }
-
-    console.log(
-      `Loaded ${numTimes} time steps with ${numFeatures} features from local file (resampled: ${netcdfData.resample_hours}h)`,
-    );
-    console.log(
-      `Flow range: ${minFlowValue.toFixed(2)} - ${maxFlowValue.toFixed(2)}`,
-    );
-
-    dropZone.classList.add("loaded");
-
-    // Setup visualization
-    setupVisualization();
+    // Process and visualize data using unified function
+    processDataAndVisualize(data.geopackage, data.netcdf, data.files);
   } catch (error) {
     console.error("Error loading local files:", error);
     showError(`Error loading local files: ${error.message}`);
@@ -372,21 +230,30 @@ async function fetchNetCDFData(filename) {
     if (depthDataArray) depthData[t] = {};
 
     for (let f = 0; f < numFeatures; f++) {
-      const featureId = featureIds[f];
+      const featureId = netcdfFeatureIds[f];
 
-      // Ensure ID has "wb-" prefix to match GeoPackage
+      // Ensure ID has "wb-" prefix to match map layer
       const idStr = String(featureId);
       const flowId = idStr.startsWith("wb-") ? idStr : `wb-${idStr}`;
 
-      const flowValue = flowDataArray[t][f];
-      flowData[t][flowId] = flowValue;
-
-      if (velocityDataArray) {
-        velocityData[t][flowId] = velocityDataArray[t][f];
+      // Debug first timestep and first few features
+      if (t === 0 && f < 3) {
+        console.log(
+          `Mapping NetCDF[${t}][${f}]: featureId=${featureId}, flowId=${flowId}, flowValue=${flowDataArray?.[t]?.[f]}`,
+        );
       }
 
-      if (depthDataArray) {
-        depthData[t][flowId] = depthDataArray[t][f];
+      // Safely access data with null checks
+      const flowValue =
+        (flowDataArray && flowDataArray[t] && flowDataArray[t][f]) || 0;
+      flowData[t][flowId] = flowValue;
+
+      if (velocityDataArray && velocityDataArray[t]) {
+        velocityData[t][flowId] = velocityDataArray[t][f] || 0;
+      }
+
+      if (depthDataArray && depthDataArray[t]) {
+        depthData[t][flowId] = depthDataArray[t][f] || 0;
       }
 
       // Track min/max for color scaling
@@ -408,32 +275,90 @@ async function fetchNetCDFData(filename) {
   );
 }
 
-function zoomToFlowpaths() {
-  if (!flowpathsData || flowpathsData.features.length === 0) return;
+// Unified function to process NetCDF data and setup visualization
+function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
+  // Process GeoPackage data (bounds and feature IDs)
+  featureIds = geopackageData.feature_ids;
+  console.log(`Loaded ${geopackageData.count} flowpaths`);
+  console.log("Sample GeoPackage feature IDs:", featureIds.slice(0, 5));
 
-  const bounds = new maplibregl.LngLatBounds();
-  flowpathsData.features.forEach((feature) => {
-    const geom = feature.geometry;
-    if (geom.type === "LineString") {
-      geom.coordinates.forEach((coord) => {
-        bounds.extend(coord);
-      });
-    } else if (geom.type === "MultiLineString") {
-      geom.coordinates.forEach((line) => {
-        line.forEach((coord) => {
-          bounds.extend(coord);
-        });
-      });
+  // Update file status display
+  if (fileNames) {
+    fileStatus.innerHTML = `<div class="file-loaded">✓ ${fileNames.geopackage}</div>`;
+    fileStatus.innerHTML += `<div class="file-loaded">✓ ${fileNames.netcdf}</div>`;
+  }
+
+  // Zoom to bounding box
+  if (geopackageData.bounds) {
+    const [minX, minY, maxX, maxY] = geopackageData.bounds;
+    mapBounds = [
+      [minX, minY],
+      [maxX, maxY],
+    ];
+    map.fitBounds(mapBounds, { padding: 50, duration: 1000 });
+    resetViewButton.style.display = "block";
+  }
+
+  // Process NetCDF data
+  timeSteps = netcdfData.time_steps;
+  const netcdfFeatureIds = netcdfData.feature_ids;
+  const flowDataArray = netcdfData.flow;
+  const velocityDataArray = netcdfData.velocity;
+  const depthDataArray = netcdfData.depth;
+  const numTimes = netcdfData.num_times;
+  const numFeatures = netcdfData.num_features;
+
+  console.log("Sample NetCDF feature IDs:", netcdfFeatureIds.slice(0, 5));
+
+  // Reset min/max for color scaling
+  maxFlowValue = 0;
+  minFlowValue = Infinity;
+  flowData = {};
+  velocityData = {};
+  depthData = {};
+
+  for (let t = 0; t < numTimes; t++) {
+    flowData[t] = {};
+    if (velocityDataArray) velocityData[t] = {};
+    if (depthDataArray) depthData[t] = {};
+
+    for (let f = 0; f < numFeatures; f++) {
+      const featureId = netcdfFeatureIds[f]; // USE NetCDF IDs, not GeoPackage IDs
+
+      // Ensure ID has "wb-" prefix to match map layer
+      const idStr = String(featureId);
+      const flowId = idStr.startsWith("wb-") ? idStr : `wb-${idStr}`;
+
+      // Safely access data with null checks
+      const flowValue =
+        (flowDataArray && flowDataArray[t] && flowDataArray[t][f]) || 0;
+      flowData[t][flowId] = flowValue;
+
+      if (velocityDataArray && velocityDataArray[t]) {
+        velocityData[t][flowId] = velocityDataArray[t][f] || 0;
+      }
+
+      if (depthDataArray && depthDataArray[t]) {
+        depthData[t][flowId] = depthDataArray[t][f] || 0;
+      }
+
+      // Track min/max for color scaling
+      if (flowValue > maxFlowValue) maxFlowValue = flowValue;
+      if (flowValue < minFlowValue && flowValue > 0) minFlowValue = flowValue;
     }
-  });
+  }
 
-  // Save bounds for reset button
-  mapBounds = bounds;
+  console.log(
+    `Loaded ${numTimes} time steps with ${numFeatures} features (resampled: ${netcdfData.resample_hours}h)`,
+  );
+  console.log(
+    `Flow range: ${minFlowValue.toFixed(2)} - ${maxFlowValue.toFixed(2)}`,
+  );
 
-  // Show reset view button
-  resetViewButton.style.display = "block";
+  dropZone.classList.add("loaded");
 
-  map.fitBounds(bounds, { padding: 50, duration: 1000 });
+  // Setup visualization
+  setupVisualization();
 }
 
 function resetMapView() {
@@ -443,132 +368,198 @@ function resetMapView() {
 }
 
 function setupVisualization() {
-  if (!flowpathsData || Object.keys(flowData).length === 0) return;
-
-  map.on("load", () => {
-    addFlowpathsToMap();
+  console.log("setupVisualization called", {
+    featureIds: featureIds?.length,
+    flowDataKeys: Object.keys(flowData).length,
+    mapLoaded: map.loaded(),
   });
 
-  if (map.loaded()) {
-    addFlowpathsToMap();
+  if (
+    !featureIds ||
+    featureIds.length === 0 ||
+    Object.keys(flowData).length === 0
+  ) {
+    console.error("Cannot setup visualization: missing data", {
+      featureIds: featureIds?.length,
+      flowData: Object.keys(flowData).length,
+    });
+    return;
   }
 
+  // Setup timeline controls immediately
   setupTimeline();
   legend.classList.add("active");
+
+  // Wait for map and layers to be ready
+  const trySetupLayers = () => {
+    console.log("trySetupLayers - checking if layers exist", {
+      mapLoaded: map.loaded(),
+      hasSelectedFlowpaths: !!map.getLayer("selected-flowpaths"),
+      hasSelectedCatchments: !!map.getLayer("selected-catchments"),
+    });
+
+    if (map.loaded() && map.getLayer("selected-flowpaths")) {
+      console.log("Map and layers ready, calling setupLayerFilters");
+      setupLayerFilters();
+    } else {
+      console.log("Layers not ready yet, retrying in 100ms");
+      setTimeout(trySetupLayers, 100);
+    }
+  };
+
+  // Start checking
+  trySetupLayers();
 }
 
-function addFlowpathsToMap() {
-  if (map.getSource("flowpaths")) {
-    map.removeLayer("flowpaths-animation");
-    map.removeSource("flowpaths");
-  }
+function setupLayerFilters() {
+  console.log("Setting up layer filters for", featureIds.length, "features");
 
-  map.addSource("flowpaths", {
-    type: "geojson",
-    data: flowpathsData,
-  });
-
-  // Dim the background flowpaths layer if it exists
+  // Dim the background flowpaths layer first
   if (map.getLayer("flowpaths")) {
     map.setPaintProperty("flowpaths", "line-opacity", 0.1);
   }
 
-  // Dim selected layers if they exist
+  // Set filter on selected-flowpaths layer to show our loaded features
   if (map.getLayer("selected-flowpaths")) {
-    map.setPaintProperty("selected-flowpaths", "line-opacity", 0.1);
-  }
+    // Build filter expression for flowpath IDs
+    const flowpathFilter = ["in", "id", ...featureIds];
+    map.setFilter("selected-flowpaths", flowpathFilter);
 
-  // Add the animated layer on top of all existing layers
-  // Find the first symbol layer to insert before (ensures lines are below labels)
-  const layers = map.getStyle().layers;
-  let firstSymbolId;
-  for (let i = 0; i < layers.length; i++) {
-    if (layers[i].type === "symbol") {
-      firstSymbolId = layers[i].id;
-      break;
+    // Make it visible and set initial style
+    map.setPaintProperty("selected-flowpaths", "line-opacity", 1.0);
+
+    // Create a wider invisible hit-area layer for easier hovering
+    const hitLayerId = "selected-flowpaths-hit";
+    if (!map.getLayer(hitLayerId)) {
+      // Get the source from the selected-flowpaths layer
+      const sourceLayer = map.getLayer("selected-flowpaths");
+      map.addLayer(
+        {
+          id: hitLayerId,
+          type: "line",
+          source: sourceLayer.source,
+          "source-layer": sourceLayer.sourceLayer,
+          paint: {
+            "line-color": "transparent",
+            "line-width": 15, // Wide hit area
+            "line-opacity": 0,
+          },
+        },
+        "selected-flowpaths",
+      ); // Add below the visible layer
     }
-  }
 
-  map.addLayer(
-    {
-      id: "flowpaths-animation",
-      type: "line",
-      source: "flowpaths",
-      paint: {
-        "line-color": "#3b82f6",
-        "line-width": 2,
-        "line-opacity": 0.8,
-      },
-    },
-    firstSymbolId,
-  ); // Insert before the first symbol layer (labels)
+    // Apply same filter to hit area
+    map.setFilter(hitLayerId, flowpathFilter);
 
-  // Add hover popup handler
-  map.on("mousemove", "flowpaths-animation", (e) => {
-    if (e.features.length > 0) {
-      map.getCanvas().style.cursor = "pointer";
+    // Remove old event handlers to prevent duplicates
+    map.off("mousemove", hitLayerId);
+    map.off("mouseleave", hitLayerId);
+    map.off("click", hitLayerId);
 
-      const feature = e.features[0];
-      const flowpathId = String(feature.properties.id);
-      const currentFlowData = flowData[currentTimeIndex];
-      const currentVelocityData = velocityData[currentTimeIndex];
-      const currentDepthData = depthData[currentTimeIndex];
+    // Add hover popup handler to the hit area layer
+    map.on("mousemove", hitLayerId, (e) => {
+      if (e.features.length > 0) {
+        map.getCanvas().style.cursor = "pointer";
 
-      const flow = currentFlowData[flowpathId] || 0;
-      const velocity = currentVelocityData
-        ? currentVelocityData[flowpathId] || 0
-        : 0;
-      const depth = currentDepthData ? currentDepthData[flowpathId] || 0 : 0;
+        const feature = e.features[0];
+        const flowpathId = String(feature.properties.id);
 
-      const popupContent = `
-        <div class="popup-content">
-          <div class="popup-row">
-            <span class="popup-label">ID:</span>
-            <span class="popup-value">${flowpathId}</span>
-          </div>
-          <div class="popup-row">
-            <span class="popup-label">Flow:</span>
-            <span class="popup-value">${flow.toFixed(2)} m³/s</span>
-          </div>
-          <div class="popup-row">
-            <span class="popup-label">Velocity:</span>
-            <span class="popup-value">${velocity.toFixed(2)} m/s</span>
-          </div>
-          <div class="popup-row">
-            <span class="popup-label">Depth:</span>
-            <span class="popup-value">${depth.toFixed(2)} m</span>
-          </div>
-        </div>
-      `;
+        // Create popup if it doesn't exist
+        if (!hoverPopup) {
+          hoverPopup = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+          });
+        }
 
-      if (!hoverPopup) {
-        hoverPopup = new maplibregl.Popup({
-          closeButton: false,
-          closeOnClick: false,
-        });
+        // Only update position and create popup if feature changed
+        if (hoveredFeatureId !== flowpathId) {
+          hoveredFeatureId = flowpathId;
+          hoverPopup.setLngLat(e.lngLat).addTo(map);
+        }
+
+        // Update popup content for current timestep
+        updateHoverPopupContent();
       }
+    });
 
-      hoverPopup.setLngLat(e.lngLat).setHTML(popupContent).addTo(map);
-    }
-  });
+    map.on("mouseleave", hitLayerId, () => {
+      map.getCanvas().style.cursor = "";
+      hoveredFeatureId = null;
+      if (hoverPopup) {
+        hoverPopup.remove();
+      }
+    });
 
-  map.on("mouseleave", "flowpaths-animation", () => {
-    map.getCanvas().style.cursor = "";
-    if (hoverPopup) {
-      hoverPopup.remove();
-    }
-  });
+    // Add click handler for time series plot to the hit area
+    map.on("click", hitLayerId, (e) => {
+      if (e.features.length > 0) {
+        const feature = e.features[0];
+        selectedFlowpathId = String(feature.properties.id);
+        showTimeSeries(selectedFlowpathId);
+      }
+    });
+  }
 
-  // Add click handler for time series plot
-  map.on("click", "flowpaths-animation", (e) => {
-    if (e.features.length > 0) {
-      const feature = e.features[0];
-      selectedFlowpathId = String(feature.properties.id);
-      showTimeSeries(selectedFlowpathId);
-    }
-  });
+  // Set filter on selected-catchments layer to show corresponding catchments
+  if (map.getLayer("selected-catchments")) {
+    // Convert wb-123 to cat-123 for catchment IDs
+    const catchmentIds = featureIds.map((id) => id.replace("wb-", "cat-"));
+    const catchmentFilter = ["in", "divide_id", ...catchmentIds];
+    map.setFilter("selected-catchments", catchmentFilter);
 
+    // Make fill transparent and outline thicker
+    map.setPaintProperty(
+      "selected-catchments",
+      "fill-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    map.setPaintProperty(
+      "selected-catchments",
+      "fill-outline-color",
+      "rgba(238, 51, 119, 1)",
+    );
+  }
+
+  // Initial visualization update (synchronous, blocking)
   updateVisualization(0);
+}
+
+// Update hover popup content for current timestep
+function updateHoverPopupContent() {
+  if (!hoverPopup || !hoveredFeatureId) return;
+
+  const currentFlowData = flowData[currentTimeIndex];
+  const currentVelocityData = velocityData[currentTimeIndex];
+  const currentDepthData = depthData[currentTimeIndex];
+
+  const flow = currentFlowData?.[hoveredFeatureId] || 0;
+  const velocity = currentVelocityData?.[hoveredFeatureId] || 0;
+  const depth = currentDepthData?.[hoveredFeatureId] || 0;
+
+  const popupContent = `
+    <div class="popup-content">
+      <div class="popup-row">
+        <span class="popup-label">ID:</span>
+        <span class="popup-value">${hoveredFeatureId}</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Flow:</span>
+        <span class="popup-value">${flow.toFixed(2)} m³/s</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Velocity:</span>
+        <span class="popup-value">${velocity.toFixed(2)} m/s</span>
+      </div>
+      <div class="popup-row">
+        <span class="popup-label">Depth:</span>
+        <span class="popup-value">${depth.toFixed(2)} m</span>
+      </div>
+    </div>
+  `;
+
+  hoverPopup.setHTML(popupContent);
 }
 
 let timelineInitialized = false;
@@ -643,8 +634,8 @@ function pauseAnimation() {
 }
 
 function updateVisualization(timeIndex) {
-  if (!map.getSource("flowpaths")) {
-    console.error("No flowpaths source found");
+  // Silently skip if layer isn't ready yet
+  if (!map.getLayer("selected-flowpaths")) {
     return;
   }
 
@@ -654,36 +645,56 @@ function updateVisualization(timeIndex) {
     return;
   }
 
-  console.log(
-    `Updating visualization for time ${timeIndex}, features:`,
-    Object.keys(currentFlowData).length,
-  );
+  // Debug first timestep
+  if (timeIndex === 0) {
+    console.log("updateVisualization - first timestep debug:");
+    console.log("  featureIds (first 3):", featureIds.slice(0, 3));
+    console.log(
+      "  flowData keys (first 3):",
+      Object.keys(currentFlowData).slice(0, 3),
+    );
+    console.log(
+      "  Sample values:",
+      featureIds.slice(0, 3).map((id) => ({
+        id,
+        flowValue: currentFlowData[id],
+        exists: id in currentFlowData,
+      })),
+    );
+  }
 
+  // Build paint expressions for this timestep
+  // These are MapLibre expressions: https://maplibre.org/maplibre-style-spec/expressions/
   const colorExpression = ["case"];
   const widthExpression = ["case"];
 
-  flowpathsData.features.forEach((feature) => {
-    const id = String(feature.properties.id);
+  // For each feature, add a condition to the expression
+  for (let i = 0; i < featureIds.length; i++) {
+    const id = featureIds[i];
     const flowValue = currentFlowData[id] || 0;
 
-    const color = getColorForFlow(flowValue);
+    // Add color condition
     colorExpression.push(["==", ["get", "id"], id]);
-    colorExpression.push(color);
+    colorExpression.push(getColorForFlow(flowValue));
 
-    const width = getWidthForFlow(flowValue);
+    // Add width condition
     widthExpression.push(["==", ["get", "id"], id]);
-    widthExpression.push(width);
-  });
+    widthExpression.push(getWidthForFlow(flowValue));
+  }
 
-  colorExpression.push("#94a3b8");
-  widthExpression.push(1);
+  // Default values (fallback)
+  colorExpression.push("#3b82f6");
+  widthExpression.push(2);
 
-  map.setPaintProperty("flowpaths-animation", "line-color", colorExpression);
-  map.setPaintProperty("flowpaths-animation", "line-width", widthExpression);
-  map.setPaintProperty("flowpaths-animation", "line-opacity", 1.0);
+  // Update layer paint properties (blocking, synchronous)
+  map.setPaintProperty("selected-flowpaths", "line-color", colorExpression);
+  map.setPaintProperty("selected-flowpaths", "line-width", widthExpression);
+
+  // Update hover popup if one is open
+  updateHoverPopupContent();
 }
 
-// Track which variables are visible and current resample interval
+// Track which variables are visible
 let plotState = {
   flowpathId: null,
   visibleVariables: {
@@ -691,20 +702,7 @@ let plotState = {
     velocity: true,
     depth: true,
   },
-  resampleInterval: 1,
 };
-
-function resampleData(data, interval) {
-  if (interval === 1) return data;
-
-  const resampled = [];
-  for (let i = 0; i < data.length; i += interval) {
-    const slice = data.slice(i, i + interval);
-    const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
-    resampled.push(avg);
-  }
-  return resampled;
-}
 
 function showTimeSeries(flowpathId) {
   plotState.flowpathId = flowpathId;
@@ -723,9 +721,8 @@ function updatePlot() {
   if (!plotState.flowpathId) return;
 
   const flowpathId = plotState.flowpathId;
-  const interval = plotState.resampleInterval;
 
-  // Prepare time series data
+  // Prepare time series data - use backend-resampled data directly
   const flowValues = [];
   const velocityValues = [];
   const depthValues = [];
@@ -742,15 +739,8 @@ function updatePlot() {
     }
   }
 
-  // Resample the data
-  const resampledFlow = resampleData(flowValues, interval);
-  const resampledVelocity =
-    velocityValues.length > 0 ? resampleData(velocityValues, interval) : [];
-  const resampledDepth =
-    depthValues.length > 0 ? resampleData(depthValues, interval) : [];
-
-  // Create time indices for resampled data
-  const times = resampledFlow.map((_, idx) => idx * interval);
+  // Use actual timestamps for x-axis
+  const times = timeSteps;
 
   // Create Plotly traces based on visible variables
   const traces = [];
@@ -758,7 +748,7 @@ function updatePlot() {
   if (plotState.visibleVariables.flow) {
     traces.push({
       x: times,
-      y: resampledFlow,
+      y: flowValues,
       name: "Flow (m³/s)",
       type: "scatter",
       mode: "lines",
@@ -766,10 +756,10 @@ function updatePlot() {
     });
   }
 
-  if (plotState.visibleVariables.velocity && resampledVelocity.length > 0) {
+  if (plotState.visibleVariables.velocity && velocityValues.length > 0) {
     traces.push({
       x: times,
-      y: resampledVelocity,
+      y: velocityValues,
       name: "Velocity (m/s)",
       type: "scatter",
       mode: "lines",
@@ -778,10 +768,10 @@ function updatePlot() {
     });
   }
 
-  if (plotState.visibleVariables.depth && resampledDepth.length > 0) {
+  if (plotState.visibleVariables.depth && depthValues.length > 0) {
     traces.push({
       x: times,
-      y: resampledDepth,
+      y: depthValues,
       name: "Depth (m)",
       type: "scatter",
       mode: "lines",
@@ -793,7 +783,8 @@ function updatePlot() {
   const layout = {
     title: "",
     xaxis: {
-      title: "Time Step",
+      title: "Time",
+      type: "date",
     },
     yaxis: {
       title: "Flow (m³/s)",
@@ -806,7 +797,7 @@ function updatePlot() {
   };
 
   // Add secondary and tertiary y-axes if needed
-  if (plotState.visibleVariables.velocity && resampledVelocity.length > 0) {
+  if (plotState.visibleVariables.velocity && velocityValues.length > 0) {
     layout.yaxis2 = {
       title: "Velocity (m/s)",
       titlefont: { color: "#10b981" },
@@ -816,7 +807,7 @@ function updatePlot() {
     };
   }
 
-  if (plotState.visibleVariables.depth && resampledDepth.length > 0) {
+  if (plotState.visibleVariables.depth && depthValues.length > 0) {
     layout.yaxis3 = {
       title: "Depth (m)",
       titlefont: { color: "#f59e0b" },
@@ -830,9 +821,26 @@ function updatePlot() {
   Plotly.newPlot("timeSeries", traces, layout, { responsive: true });
 }
 
+// Minimize plot button handler
+document.getElementById("minimizePlot").addEventListener("click", () => {
+  const plotContainer = document.getElementById("plotContainer");
+  const minimizeBtn = document.getElementById("minimizePlot");
+
+  if (plotContainer.classList.contains("minimized")) {
+    plotContainer.classList.remove("minimized");
+    minimizeBtn.textContent = "−";
+  } else {
+    plotContainer.classList.add("minimized");
+    minimizeBtn.textContent = "+";
+  }
+});
+
 // Close plot button handler
 document.getElementById("closePlot").addEventListener("click", () => {
-  document.getElementById("plotContainer").style.display = "none";
+  const plotContainer = document.getElementById("plotContainer");
+  plotContainer.style.display = "none";
+  plotContainer.classList.remove("minimized");
+  document.getElementById("minimizePlot").textContent = "−";
   selectedFlowpathId = null;
   plotState.flowpathId = null;
 });
@@ -858,29 +866,6 @@ document.getElementById("toggleDepth").addEventListener("click", function () {
   updatePlot();
 });
 
-// Resample dropdown handler
-const resampleSelect = document.getElementById("resampleSelect");
-const customResampleInput = document.getElementById("customResample");
-
-resampleSelect.addEventListener("change", function () {
-  if (this.value === "custom") {
-    customResampleInput.style.display = "inline-block";
-    customResampleInput.focus();
-  } else {
-    customResampleInput.style.display = "none";
-    plotState.resampleInterval = parseInt(this.value);
-    updatePlot();
-  }
-});
-
-customResampleInput.addEventListener("change", function () {
-  const value = parseInt(this.value);
-  if (value && value > 0) {
-    plotState.resampleInterval = value;
-    updatePlot();
-  }
-});
-
 // Timeline resample dropdown handler
 const timelineResampleSelect = document.getElementById(
   "timelineResampleSelect",
@@ -889,24 +874,41 @@ const timelineCustomResampleInput = document.getElementById(
   "timelineCustomResample",
 );
 
-timelineResampleSelect.addEventListener("change", function () {
-  if (this.value === "custom") {
-    timelineCustomResampleInput.style.display = "inline-block";
-    timelineCustomResampleInput.focus();
-  } else {
-    timelineCustomResampleInput.style.display = "none";
-    timelineResampleInterval = parseInt(this.value);
-    applyTimelineResample();
-  }
+console.log("Timeline resample elements:", {
+  select: timelineResampleSelect,
+  input: timelineCustomResampleInput,
 });
 
-timelineCustomResampleInput.addEventListener("change", function () {
-  const value = parseInt(this.value);
-  if (value && value > 0) {
-    timelineResampleInterval = value;
-    applyTimelineResample();
-  }
-});
+if (timelineResampleSelect) {
+  timelineResampleSelect.addEventListener("change", function () {
+    console.log("Timeline resample changed to:", this.value);
+    if (this.value === "custom") {
+      if (timelineCustomResampleInput) {
+        timelineCustomResampleInput.style.display = "inline-block";
+        timelineCustomResampleInput.focus();
+      }
+    } else {
+      if (timelineCustomResampleInput) {
+        timelineCustomResampleInput.style.display = "none";
+      }
+      timelineResampleInterval = parseInt(this.value);
+      console.log("Applying timeline resample:", timelineResampleInterval);
+      applyTimelineResample();
+    }
+  });
+} else {
+  console.error("timelineResampleSelect element not found!");
+}
+
+if (timelineCustomResampleInput) {
+  timelineCustomResampleInput.addEventListener("change", function () {
+    const value = parseInt(this.value);
+    if (value && value > 0) {
+      timelineResampleInterval = value;
+      applyTimelineResample();
+    }
+  });
+}
 
 async function applyTimelineResample() {
   // Pause animation if playing
@@ -920,22 +922,41 @@ async function applyTimelineResample() {
 
   // Show loading indicator
   loading.classList.add("active");
+  fileStatus.innerHTML =
+    '<div style="color: #3b82f6;">Resampling data...</div>';
 
   try {
     // Reload data from server with new resample interval
+    // This will call processDataAndVisualize which handles everything
     await loadLocalFiles();
 
-    // Update timeline controls
-    const timeSlider = document.getElementById("timeSlider");
-    timeSlider.max = timeSteps.length - 1;
+    // Restore approximate time position after data is loaded
+    if (timeSteps.length > 0) {
+      currentTimeIndex = Math.floor(currentProgress * timeSteps.length);
+      currentTimeIndex = Math.max(
+        0,
+        Math.min(currentTimeIndex, timeSteps.length - 1),
+      );
+      document.getElementById("timeSlider").max = timeSteps.length - 1;
+      document.getElementById("timeSlider").value = currentTimeIndex;
+      updateTimeDisplay();
 
-    // Restore approximate time position
-    currentTimeIndex = Math.floor(currentProgress * timeSteps.length);
-    timeSlider.value = currentTimeIndex;
+      // Update visualization at the restored time index
+      // Wait a bit to ensure map layer is ready
+      setTimeout(() => {
+        if (map.getLayer("selected-flowpaths")) {
+          updateVisualization(currentTimeIndex);
+        }
+      }, 100);
 
-    // Update visualization
-    updateVisualization(currentTimeIndex);
-    updateTimeDisplay();
+      // If a plot is open, update it with the new data
+      if (
+        plotState.flowpathId &&
+        document.getElementById("plotContainer").style.display === "block"
+      ) {
+        updatePlot();
+      }
+    }
   } catch (error) {
     console.error("Error resampling timeline:", error);
     showError(`Error resampling: ${error.message}`);

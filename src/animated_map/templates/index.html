@@ -114,56 +114,46 @@
                     value="0"
                 />
             </div>
-        </div>
 
-        <div class="plot-container" id="plotContainer" style="display: none">
-            <div class="plot-header">
-                <h3 id="plotTitle">Flowpath Time Series</h3>
-                <div class="plot-controls">
-                    <div class="toggle-buttons">
-                        <button
-                            class="toggle-btn active"
-                            id="toggleFlow"
-                            data-variable="flow"
-                        >
-                            Flow
-                        </button>
-                        <button
-                            class="toggle-btn active"
-                            id="toggleVelocity"
-                            data-variable="velocity"
-                        >
-                            Velocity
-                        </button>
-                        <button
-                            class="toggle-btn active"
-                            id="toggleDepth"
-                            data-variable="depth"
-                        >
-                            Depth
-                        </button>
+            <div
+                class="plot-container"
+                id="plotContainer"
+                style="display: none"
+            >
+                <div class="plot-header">
+                    <h3 id="plotTitle">Flowpath Time Series</h3>
+                    <div class="plot-controls">
+                        <div class="toggle-buttons">
+                            <button
+                                class="toggle-btn active"
+                                id="toggleFlow"
+                                data-variable="flow"
+                            >
+                                Flow
+                            </button>
+                            <button
+                                class="toggle-btn active"
+                                id="toggleVelocity"
+                                data-variable="velocity"
+                            >
+                                Velocity
+                            </button>
+                            <button
+                                class="toggle-btn active"
+                                id="toggleDepth"
+                                data-variable="depth"
+                            >
+                                Depth
+                            </button>
+                        </div>
                     </div>
-                    <div class="resample-control">
-                        <label for="resampleSelect">Resample:</label>
-                        <select id="resampleSelect">
-                            <option value="1" selected>Hourly</option>
-                            <option value="24">Daily</option>
-                            <option value="168">Weekly</option>
-                            <option value="730">Monthly</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                        <input
-                            type="number"
-                            id="customResample"
-                            placeholder="Hours"
-                            style="display: none"
-                            min="1"
-                        />
-                    </div>
+                    <button class="minimize-plot" id="minimizePlot">−</button>
+                    <button class="close-plot" id="closePlot">×</button>
                 </div>
-                <button class="close-plot" id="closePlot">×</button>
+                <div class="plot-content">
+                    <div id="timeSeries"></div>
+                </div>
             </div>
-            <div id="timeSeries"></div>
         </div>
 
         <script src="{{ url_for('static', filename='js/main.js') }}"></script>

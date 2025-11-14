@@ -129,6 +129,8 @@ main {
     padding: 20px;
     box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
     display: none;
+    position: relative;
+    z-index: 1000;
 }
 
 .timeline-container.active {
@@ -385,16 +387,10 @@ main {
 
 /* Plot Container */
 .plot-container {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 300px;
     background: var(--surface-color);
     border-top: 1px solid #e2e8f0;
     box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
-    z-index: 1500;
-    transition: transform 0.3s ease;
+    max-height: 400px;
 }
 
 .plot-header {
@@ -477,6 +473,7 @@ main {
     font-size: 0.875rem;
 }
 
+.minimize-plot,
 .close-plot {
     background: none;
     border: none;
@@ -491,15 +488,27 @@ main {
     justify-content: center;
     border-radius: 4px;
     transition: all 0.2s;
+    margin-left: 5px;
 }
 
+.minimize-plot:hover,
 .close-plot:hover {
     background: #f1f5f9;
     color: var(--text-color);
 }
 
+.minimize-plot {
+    font-size: 2rem;
+    font-weight: bold;
+}
+
+.plot-content {
+    height: 350px;
+    overflow: hidden;
+}
+
 #timeSeries {
-    height: 250px;
+    height: 100%;
     padding: 10px;
 }
 

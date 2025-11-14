@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import xarray as xr
 from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
@@ -112,26 +113,51 @@ def create_app():
             # Extract data
             # Note: data is shaped (feature_id, time), need to transpose for (time, feature_id)
             time_data = ds["time"].values
-            feature_ids = ds["feature_id"].values.tolist()
-            flow_data = ds[flow_var].values  # shape: (feature_id, time)
+            feature_ids_raw = ds["feature_id"].values
+
+            # Sort feature IDs and create index mapping using numpy for efficiency
+            sort_indices = np.argsort(feature_ids_raw)
+            feature_ids_sorted = feature_ids_raw[sort_indices].tolist()
+
+            # Reorder data according to sorted feature IDs
+            # Check actual dimension order from xarray
+            flow_dims = ds[flow_var].dims
+
+            if flow_dims[0] == "feature_id":
+                # Shape is (feature_id, time) - need to transpose
+                flow_data_sorted = ds[flow_var].values[sort_indices, :]
+                flow_transposed = flow_data_sorted.T.tolist()
+            else:
+                # Shape is (time, feature_id) - already correct order
+                flow_data_sorted = ds[flow_var].values[:, sort_indices]
+                flow_transposed = flow_data_sorted.tolist()
 
             # Convert time to ISO format strings
             time_strings = [str(t) for t in time_data]
 
-            # Transpose to (time, feature_id) for easier client-side processing
-            flow_transposed = flow_data.T.tolist()  # Now shape: (time, feature_id)
-
-            # Also get velocity and depth if available
+            # Also get velocity and depth if available, with same sorting
             velocity_transposed = None
             depth_transposed = None
 
             if "velocity" in ds.variables:
-                velocity_data = ds["velocity"].values
-                velocity_transposed = velocity_data.T.tolist()
+                velocity_dims = ds["velocity"].dims
+                if velocity_dims[0] == "feature_id":
+                    velocity_data_sorted = ds["velocity"].values[sort_indices, :]
+                    velocity_transposed = velocity_data_sorted.T.tolist()
+                else:
+                    velocity_data_sorted = ds["velocity"].values[:, sort_indices]
+                    velocity_transposed = velocity_data_sorted.tolist()
 
             if "depth" in ds.variables:
-                depth_data = ds["depth"].values
-                depth_transposed = depth_data.T.tolist()
+                depth_dims = ds["depth"].dims
+                if depth_dims[0] == "feature_id":
+                    depth_data_sorted = ds["depth"].values[sort_indices, :]
+                    depth_transposed = depth_data_sorted.T.tolist()
+                else:
+                    depth_data_sorted = ds["depth"].values[:, sort_indices]
+                    depth_transposed = depth_data_sorted.tolist()
+
+            feature_ids = feature_ids_sorted
 
             # Close dataset
             ds.close()
@@ -155,7 +181,7 @@ def create_app():
 
     @app.route("/api/geopackage/<filename>", methods=["GET"])
     def read_geopackage(filename):
-        """Read and process GeoPackage file, return GeoJSON"""
+        """Read and process GeoPackage file, return bounding box and feature IDs"""
         try:
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], secure_filename(filename))
 
@@ -169,10 +195,13 @@ def create_app():
             if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Convert to GeoJSON
-            geojson = gdf.__geo_interface__
+            # Get bounding box [minx, miny, maxx, maxy]
+            bounds = gdf.total_bounds.tolist()
 
-            return jsonify(geojson)
+            # Get feature IDs and sort them to ensure consistent ordering
+            feature_ids = sorted(gdf["id"].tolist())
+
+            return jsonify({"bounds": bounds, "feature_ids": feature_ids, "count": len(feature_ids)})
 
         except Exception as e:
             return jsonify({"error": f"Error processing GeoPackage file: {str(e)}"}), 500
@@ -194,6 +223,8 @@ def create_app():
             if uploads_dir.exists():
                 # Delete all files in uploads folder
                 for file_path in uploads_dir.iterdir():
+                    if file_path.name == ".gitkeep":
+                        continue
                     if file_path.is_file():
                         file_path.unlink()
             else:
@@ -211,7 +242,10 @@ def create_app():
             gdf = gpd.read_file(gpkg_path, layer="flowpaths")
             if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
                 gdf = gdf.to_crs(epsg=4326)
-            geojson = gdf.__geo_interface__
+
+            # Get bounding box and feature IDs (sorted)
+            bounds = gdf.total_bounds.tolist()
+            feature_ids_gpkg = sorted(gdf["id"].tolist())
 
             # Process NetCDF
             ds = xr.open_dataset(nc_path)
@@ -239,31 +273,61 @@ def create_app():
 
             # Extract data
             time_data = ds["time"].values
-            feature_ids = ds["feature_id"].values.tolist()
-            flow_data = ds[flow_var].values
+            feature_ids_raw = ds["feature_id"].values
+
+            # Sort feature IDs and create index mapping using numpy for efficiency
+            sort_indices = np.argsort(feature_ids_raw)
+            feature_ids_sorted = feature_ids_raw[sort_indices].tolist()
+
+            print(f"DEBUG: feature_ids_raw shape: {feature_ids_raw.shape}")
+            print(f"DEBUG: sort_indices shape: {sort_indices.shape}, max: {sort_indices.max()}")
+
+            # Reorder data according to sorted feature IDs
+            # Check actual dimension order from xarray
+            flow_dims = ds[flow_var].dims
+            print(f"DEBUG: flow dimensions: {flow_dims}, shape: {ds[flow_var].shape}")
+
+            if flow_dims[0] == "feature_id":
+                # Shape is (feature_id, time) - need to transpose
+                flow_data_sorted = ds[flow_var].values[sort_indices, :]
+                flow_transposed = flow_data_sorted.T.tolist()
+            else:
+                # Shape is (time, feature_id) - already correct order
+                flow_data_sorted = ds[flow_var].values[:, sort_indices]
+                flow_transposed = flow_data_sorted.tolist()
 
             # Convert time to ISO format strings
             time_strings = [str(t) for t in time_data]
 
-            flow_transposed = flow_data.T.tolist()
-
-            # Get velocity and depth if available
+            # Get velocity and depth if available, with same sorting
             velocity_transposed = None
             depth_transposed = None
 
             if "velocity" in ds.variables:
-                velocity_data = ds["velocity"].values
-                velocity_transposed = velocity_data.T.tolist()
+                velocity_dims = ds["velocity"].dims
+                if velocity_dims[0] == "feature_id":
+                    velocity_data_sorted = ds["velocity"].values[sort_indices, :]
+                    velocity_transposed = velocity_data_sorted.T.tolist()
+                else:
+                    velocity_data_sorted = ds["velocity"].values[:, sort_indices]
+                    velocity_transposed = velocity_data_sorted.tolist()
 
             if "depth" in ds.variables:
-                depth_data = ds["depth"].values
-                depth_transposed = depth_data.T.tolist()
+                depth_dims = ds["depth"].dims
+                if depth_dims[0] == "feature_id":
+                    depth_data_sorted = ds["depth"].values[sort_indices, :]
+                    depth_transposed = depth_data_sorted.T.tolist()
+                else:
+                    depth_data_sorted = ds["depth"].values[:, sort_indices]
+                    depth_transposed = depth_data_sorted.tolist()
+
+            feature_ids = feature_ids_sorted
 
             ds.close()
 
             # Return combined response
             response = {
-                "geopackage": geojson,
+                "geopackage": {"bounds": bounds, "feature_ids": feature_ids_gpkg, "count": len(feature_ids_gpkg)},
                 "netcdf": {
                     "time_steps": time_strings,
                     "feature_ids": feature_ids,
@@ -288,121 +352,135 @@ def create_app():
     @app.route("/api/load-local-files", methods=["GET"])
     def load_local_files():
         """Load files from configured local directories"""
-        try:
-            # Get resample parameter from query string (in hours)
-            resample_hours = request.args.get("resample", default=1, type=int)
+        # try:
+        # Get resample parameter from query string (in hours)
+        resample_hours = request.args.get("resample", default=1, type=int)
 
-            # Get folder path from query parameter, default to current working directory
-            folder_path = request.args.get("folder", default=str(Path.cwd()))
-            data_folder = Path(folder_path)
+        # Get folder path from query parameter, default to current working directory
+        data_folder = Path("./uploads")
+        nc_file = data_folder / "uploaded.nc"
+        gpkg_file = data_folder / "uploaded.gpkg"
 
-            if not data_folder.exists():
-                return jsonify({"error": f"Folder not found: {folder_path}"}), 404
+        if not data_folder.exists():
+            return jsonify({"error": f"Folder not found: {data_folder}"}), 404
 
-            # Look for geopackage in folder/config/*.gpkg
-            gpkg_file = None
-            config_dir = data_folder / "config"
+        if not gpkg_file.exists():
+            return jsonify({"error": f"No GeoPackage file found {gpkg_file}"}), 404
 
-            if config_dir.exists():
-                gpkg_files = list(config_dir.glob("*.gpkg"))
-                if gpkg_files:
-                    gpkg_file = gpkg_files[0]
+        if not nc_file.exists():
+            return jsonify({"error": f"No NetCDF file found {nc_file}"}), 404
 
-            if not gpkg_file or not gpkg_file.exists():
-                return jsonify({"error": f"No GeoPackage file found in {config_dir}"}), 404
+        # Read GeoPackage
+        gdf = gpd.read_file(gpkg_file, layer="flowpaths")
+        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
 
-            # Look for NetCDF in folder/outputs/troute/troute_*.nc
-            outputs_dir = data_folder / "outputs" / "troute"
-            nc_file = None
+        # Get bounding box and feature IDs (sorted)
+        bounds = gdf.total_bounds.tolist()
+        feature_ids_gpkg = sorted(gdf["id"].tolist())
 
-            if outputs_dir.exists():
-                nc_files = list(outputs_dir.glob("troute_*.nc"))
-                if nc_files:
-                    # Sort by modification time, get the most recent
-                    nc_file = max(nc_files, key=lambda p: p.stat().st_mtime)
+        # Read NetCDF
+        print(nc_file)
+        ds = xr.open_dataset(nc_file)
 
-            if not nc_file or not nc_file.exists():
-                return jsonify(
-                    {"error": f"No NetCDF file found matching {outputs_dir}/troute_*.nc"}
-                ), 404
+        if "time" not in ds.dims:
+            return jsonify({"error": "Time dimension not found in NetCDF"}), 400
 
-            # Read GeoPackage
-            gdf = gpd.read_file(gpkg_file, layer="flowpaths")
-            if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-                gdf = gdf.to_crs(epsg=4326)
-            geojson = gdf.__geo_interface__
+        if "feature_id" not in ds.dims:
+            return jsonify({"error": "feature_id dimension not found in NetCDF"}), 400
 
-            # Read NetCDF
-            ds = xr.open_dataset(nc_file)
+        # Find flow variable
+        flow_var = None
+        for var_name in ["flow", "streamflow", "q", "discharge"]:
+            if var_name in ds.variables:
+                flow_var = var_name
+                break
 
-            if "time" not in ds.dims:
-                return jsonify({"error": "Time dimension not found in NetCDF"}), 400
+        if not flow_var:
+            return jsonify({"error": "Flow variable not found"}), 400
 
-            if "feature_id" not in ds.dims:
-                return jsonify({"error": "feature_id dimension not found in NetCDF"}), 400
+        # Apply resampling if requested
+        if resample_hours > 1:
+            freq_str = f"{resample_hours}H"
+            ds = ds.resample(time=freq_str).mean()
 
-            # Find flow variable
-            flow_var = None
-            for var_name in ["flow", "streamflow", "q", "discharge"]:
-                if var_name in ds.variables:
-                    flow_var = var_name
-                    break
+        # Extract data
+        time_data = ds["time"].values
+        feature_ids_raw = ds["feature_id"].values
+        print(feature_ids_raw)
+        print(len(feature_ids_raw))
 
-            if not flow_var:
-                return jsonify({"error": "Flow variable not found"}), 400
+        # Sort feature IDs and create index mapping using numpy for efficiency
 
-            # Apply resampling if requested
-            if resample_hours > 1:
-                freq_str = f"{resample_hours}H"
-                ds = ds.resample(time=freq_str).mean()
+        sort_indices = np.argsort(feature_ids_raw)
+        feature_ids_sorted = feature_ids_raw[sort_indices].tolist()
 
-            # Extract data
-            time_data = ds["time"].values
-            feature_ids = ds["feature_id"].values.tolist()
-            flow_data = ds[flow_var].values
+        # Reorder data according to sorted feature IDs
+        # Check actual dimension order from xarray
+        flow_dims = ds[flow_var].dims
+        print(f"DEBUG load_local: flow dimensions: {flow_dims}, shape: {ds[flow_var].shape}")
 
-            # Convert time to ISO format strings
-            time_strings = [str(t) for t in time_data]
+        if flow_dims[0] == "feature_id":
+            # Shape is (feature_id, time) - need to transpose
+            flow_data_sorted = ds[flow_var].values[sort_indices, :]
+            flow_transposed = flow_data_sorted.T.tolist()
+        else:
+            # Shape is (time, feature_id) - already correct order
+            flow_data_sorted = ds[flow_var].values[:, sort_indices]
+            flow_transposed = flow_data_sorted.tolist()
 
-            flow_transposed = flow_data.T.tolist()
+        # Convert time to ISO format strings
+        time_strings = [str(t) for t in time_data]
 
-            # Get velocity and depth if available
-            velocity_transposed = None
-            depth_transposed = None
+        # Get velocity and depth if available, with same sorting
+        velocity_transposed = None
+        depth_transposed = None
 
-            if "velocity" in ds.variables:
-                velocity_data = ds["velocity"].values
-                velocity_transposed = velocity_data.T.tolist()
+        if "velocity" in ds.variables:
+            velocity_dims = ds["velocity"].dims
+            if velocity_dims[0] == "feature_id":
+                velocity_data_sorted = ds["velocity"].values[sort_indices, :]
+                velocity_transposed = velocity_data_sorted.T.tolist()
+            else:
+                velocity_data_sorted = ds["velocity"].values[:, sort_indices]
+                velocity_transposed = velocity_data_sorted.tolist()
 
-            if "depth" in ds.variables:
-                depth_data = ds["depth"].values
-                depth_transposed = depth_data.T.tolist()
+        if "depth" in ds.variables:
+            depth_dims = ds["depth"].dims
+            if depth_dims[0] == "feature_id":
+                depth_data_sorted = ds["depth"].values[sort_indices, :]
+                depth_transposed = depth_data_sorted.T.tolist()
+            else:
+                depth_data_sorted = ds["depth"].values[:, sort_indices]
+                depth_transposed = depth_data_sorted.tolist()
 
-            ds.close()
+        feature_ids = feature_ids_sorted
 
-            # Return combined response
-            response = {
-                "geopackage": geojson,
-                "netcdf": {
-                    "time_steps": time_strings,
-                    "feature_ids": feature_ids,
-                    "flow": flow_transposed,
-                    "velocity": velocity_transposed,
-                    "depth": depth_transposed,
-                    "num_times": len(time_strings),
-                    "num_features": len(feature_ids),
-                    "resample_hours": resample_hours,
-                },
-                "files": {
-                    "geopackage": str(gpkg_file.name),
-                    "netcdf": str(nc_file.name),
-                },
-            }
+        ds.close()
 
-            return jsonify(response)
+        # Return combined response
+        response = {
+            "geopackage": {"bounds": bounds, "feature_ids": feature_ids_gpkg, "count": len(feature_ids_gpkg)},
+            "netcdf": {
+                "time_steps": time_strings,
+                "feature_ids": feature_ids,
+                "flow": flow_transposed,
+                "velocity": velocity_transposed,
+                "depth": depth_transposed,
+                "num_times": len(time_strings),
+                "num_features": len(feature_ids),
+                "resample_hours": resample_hours,
+            },
+            "files": {
+                "geopackage": str(gpkg_file.name),
+                "netcdf": str(nc_file.name),
+            },
+        }
 
-        except Exception as e:
-            return jsonify({"error": f"Error loading local files: {str(e)}"}), 500
+        return jsonify(response)
+
+        # except Exception as e:
+        #     return jsonify({"error": f"Error loading local files: {str(e)}"}), 500
 
     return app
 
