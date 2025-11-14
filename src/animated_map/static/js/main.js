@@ -160,6 +160,10 @@ async function loadLocalFilesFromBrowser(files, folderName) {
 }
 
 async function loadLocalFiles(folderPath = null) {
+  const startTime = performance.now();
+  console.log("=".repeat(80));
+  console.log("Starting loadLocalFiles");
+
   loading.classList.add("active");
   fileStatus.innerHTML = "";
 
@@ -170,17 +174,63 @@ async function loadLocalFiles(folderPath = null) {
       url += `&folder=${encodeURIComponent(folderPath)}`;
     }
 
+    console.log(`Fetching data from: ${url}`);
+    const fetchStart = performance.now();
     const response = await fetch(url);
+    const fetchTime = performance.now() - fetchStart;
+
+    // Check if response was compressed
+    const contentEncoding = response.headers.get("Content-Encoding");
+    const contentLength = response.headers.get("Content-Length");
+    console.log(`Fetch completed in ${(fetchTime / 1000).toFixed(2)}s`);
+    console.log(
+      `Content-Encoding: ${contentEncoding || "none (uncompressed)"}`,
+    );
+    if (contentLength) {
+      console.log(
+        `Compressed transfer size: ${(parseInt(contentLength) / 1024 / 1024).toFixed(2)} MB`,
+      );
+    }
 
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || "Failed to load local files");
     }
 
+    console.log("Parsing JSON response");
+    const parseStart = performance.now();
     const data = await response.json();
+    const parseTime = performance.now() - parseStart;
+
+    // Calculate uncompressed size (approximate)
+    const dataSize = new Blob([JSON.stringify(data)]).size;
+    console.log(`JSON parsing completed in ${(parseTime / 1000).toFixed(2)}s`);
+    console.log(
+      `Uncompressed data size: ${(dataSize / 1024 / 1024).toFixed(2)} MB`,
+    );
+    if (contentLength) {
+      const compressionRatio = (
+        (1 - parseInt(contentLength) / dataSize) *
+        100
+      ).toFixed(1);
+      console.log(`Compression ratio: ${compressionRatio}% reduction`);
+    }
+    console.log(
+      `Data contains ${data.netcdf.num_times} time steps, ${data.netcdf.num_features} features`,
+    );
 
     // Process and visualize data using unified function
+    console.log("Starting data processing and visualization");
+    const processStart = performance.now();
     processDataAndVisualize(data.geopackage, data.netcdf, data.files);
+    const processTime = performance.now() - processStart;
+    console.log(
+      `Data processing completed in ${(processTime / 1000).toFixed(2)}s`,
+    );
+
+    const totalTime = performance.now() - startTime;
+    console.log(`TOTAL FRONTEND TIME: ${(totalTime / 1000).toFixed(2)}s`);
+    console.log("=".repeat(80));
   } catch (error) {
     console.error("Error loading local files:", error);
     showError(`Error loading local files: ${error.message}`);
@@ -291,9 +341,15 @@ async function fetchNetCDFData(filename) {
 
 // Unified function to process NetCDF data and setup visualization
 function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
+  console.log("--- processDataAndVisualize start ---");
+  const startTime = performance.now();
+
   // Process GeoPackage data (bounds and feature IDs)
+  const gpkgStart = performance.now();
   featureIds = geopackageData.feature_ids;
-  console.log(`Loaded ${geopackageData.count} flowpaths`);
+  console.log(
+    `Loaded ${geopackageData.count} flowpaths in ${(performance.now() - gpkgStart).toFixed(2)}ms`,
+  );
   console.log("Sample GeoPackage feature IDs:", featureIds.slice(0, 5));
 
   // Update file status display
@@ -314,6 +370,9 @@ function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
   }
 
   // Process NetCDF data
+  console.log("Processing NetCDF data...");
+  const ncStart = performance.now();
+
   timeSteps = netcdfData.time_steps;
   const netcdfFeatureIds = netcdfData.feature_ids;
   const flowDataArray = netcdfData.flow;
@@ -330,6 +389,11 @@ function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
   flowData = {};
   velocityData = {};
   depthData = {};
+
+  console.log(
+    `Reorganizing data: ${numTimes} timesteps × ${numFeatures} features`,
+  );
+  const reorganizeStart = performance.now();
 
   for (let t = 0; t < numTimes; t++) {
     flowData[t] = {};
@@ -362,6 +426,13 @@ function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
     }
   }
 
+  const reorganizeTime = performance.now() - reorganizeStart;
+  console.log(
+    `Data reorganization completed in ${(reorganizeTime / 1000).toFixed(2)}s`,
+  );
+
+  const ncTime = performance.now() - ncStart;
+  console.log(`NetCDF processing completed in ${(ncTime / 1000).toFixed(2)}s`);
   console.log(
     `Loaded ${numTimes} time steps with ${numFeatures} features (resampled: ${netcdfData.resample_hours}h)`,
   );
@@ -372,7 +443,18 @@ function processDataAndVisualize(geopackageData, netcdfData, fileNames) {
   dropZone.classList.add("loaded");
 
   // Setup visualization
+  console.log("Setting up visualization...");
+  const vizStart = performance.now();
   setupVisualization();
+  const vizTime = performance.now() - vizStart;
+  console.log(
+    `Visualization setup completed in ${(vizTime / 1000).toFixed(2)}s`,
+  );
+
+  const totalTime = performance.now() - startTime;
+  console.log(
+    `--- processDataAndVisualize completed in ${(totalTime / 1000).toFixed(2)}s ---`,
+  );
 }
 
 function resetMapView() {
@@ -382,6 +464,7 @@ function resetMapView() {
 }
 
 function setupVisualization() {
+  const startTime = performance.now();
   console.log("setupVisualization called", {
     featureIds: featureIds?.length,
     flowDataKeys: Object.keys(flowData).length,
@@ -401,7 +484,11 @@ function setupVisualization() {
   }
 
   // Setup timeline controls immediately
+  const timelineStart = performance.now();
   setupTimeline();
+  console.log(
+    `Timeline setup completed in ${(performance.now() - timelineStart).toFixed(2)}ms`,
+  );
   legend.classList.add("active");
 
   // Wait for map and layers to be ready
@@ -414,7 +501,14 @@ function setupVisualization() {
 
     if (map.loaded() && map.getLayer("selected-flowpaths")) {
       console.log("Map and layers ready, calling setupLayerFilters");
+      const layerStart = performance.now();
       setupLayerFilters();
+      console.log(
+        `Layer filters setup completed in ${(performance.now() - layerStart).toFixed(2)}ms`,
+      );
+      console.log(
+        `setupVisualization total time: ${(performance.now() - startTime).toFixed(2)}ms`,
+      );
     } else {
       console.log("Layers not ready yet, retrying in 100ms");
       setTimeout(trySetupLayers, 100);
@@ -679,6 +773,7 @@ function updateVisualization(timeIndex) {
 
   // Build paint expressions for this timestep
   // These are MapLibre expressions: https://maplibre.org/maplibre-style-spec/expressions/
+  const exprStart = performance.now();
   const colorExpression = ["case"];
   const widthExpression = ["case"];
 
@@ -700,9 +795,22 @@ function updateVisualization(timeIndex) {
   colorExpression.push("#3b82f6");
   widthExpression.push(2);
 
+  if (timeIndex === 0) {
+    console.log(
+      `Expression building took ${(performance.now() - exprStart).toFixed(2)}ms`,
+    );
+  }
+
   // Update layer paint properties (blocking, synchronous)
+  const paintStart = performance.now();
   map.setPaintProperty("selected-flowpaths", "line-color", colorExpression);
   map.setPaintProperty("selected-flowpaths", "line-width", widthExpression);
+
+  if (timeIndex === 0) {
+    console.log(
+      `Map paint update took ${(performance.now() - paintStart).toFixed(2)}ms`,
+    );
+  }
 
   // Update hover popup if one is open
   updateHoverPopupContent();
