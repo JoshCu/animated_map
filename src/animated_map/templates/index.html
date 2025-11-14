@@ -27,7 +27,17 @@
         <main>
             <div id="map"></div>
 
-            <div class="drop-zone" id="dropZone">
+            <div
+                class="drop-zone"
+                id="dropZone"
+                {%
+                if
+                auto_loaded
+                %}style="display: none;"
+                {%
+                endif
+                %}
+            >
                 <div>📂 Select Data Folder</div>
                 <div class="file-status">
                     <small

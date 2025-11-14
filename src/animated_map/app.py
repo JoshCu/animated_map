@@ -1,3 +1,4 @@
+import argparse
 import os
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 
-def create_app():
+def create_app(data_folder=None):
     """Application factory for creating Flask app instance"""
     # Determine the package directory
     package_dir = Path(__file__).parent
@@ -24,9 +25,50 @@ def create_app():
     app.config["UPLOAD_FOLDER"] = "uploads"
     app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500MB max file size
     app.config["ALLOWED_EXTENSIONS"] = {".gpkg", ".nc"}
+    app.config["AUTO_LOADED"] = False
 
     # Ensure upload directory exists
-    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    uploads_path = Path(app.config["UPLOAD_FOLDER"])
+    uploads_path.mkdir(exist_ok=True)
+
+    # If data folder is provided, symlink files into uploads
+    if data_folder:
+        data_path = Path(data_folder).resolve()
+        if not data_path.exists():
+            print(f"Error: Data folder does not exist: {data_folder}", file=sys.stderr)
+            sys.exit(1)
+
+        # Clear existing files in uploads folder
+        for file_path in uploads_path.iterdir():
+            if file_path.is_file() or file_path.is_symlink():
+                file_path.unlink()
+
+        # Find GeoPackage file in config/
+        gpkg_files = list((data_path / "config").glob("*.gpkg"))
+        if not gpkg_files:
+            print(f"Error: No .gpkg file found in {data_path / 'config'}", file=sys.stderr)
+            sys.exit(1)
+        gpkg_source = gpkg_files[0]
+
+        # Find NetCDF file in outputs/troute/
+        nc_files = list((data_path / "outputs" / "troute").glob("troute_*.nc"))
+        if not nc_files:
+            print(f"Error: No troute_*.nc file found in {data_path / 'outputs' / 'troute'}", file=sys.stderr)
+            sys.exit(1)
+        # Get the most recent NetCDF file
+        nc_source = max(nc_files, key=lambda p: p.stat().st_mtime)
+
+        # Create symlinks
+        gpkg_link = uploads_path / "uploaded.gpkg"
+        nc_link = uploads_path / "uploaded.nc"
+
+        gpkg_link.symlink_to(gpkg_source.resolve())
+        nc_link.symlink_to(nc_source.resolve())
+
+        print(f"Linked {gpkg_source} -> {gpkg_link}")
+        print(f"Linked {nc_source} -> {nc_link}")
+
+        app.config["AUTO_LOADED"] = True
 
     def allowed_file(filename):
         """Check if the file extension is allowed"""
@@ -35,7 +77,12 @@ def create_app():
     @app.route("/")
     def index():
         """Serve the main page"""
-        return render_template("index.html")
+        return render_template("index.html", auto_loaded=app.config["AUTO_LOADED"])
+
+    @app.route("/api/config")
+    def get_config():
+        """Return app configuration for frontend"""
+        return jsonify({"auto_loaded": app.config["AUTO_LOADED"]})
 
     @app.route("/upload", methods=["POST"])
     def upload_file():
@@ -487,8 +534,21 @@ def create_app():
 
 def main():
     """Entry point for the application"""
-    app = create_app()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    parser = argparse.ArgumentParser(description="Animated Streamflow Visualizer")
+    parser.add_argument(
+        "data_folder",
+        nargs="?",
+        default=None,
+        help="Path to data folder containing config/*.gpkg and outputs/troute/troute_*.nc",
+    )
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=5000, help="Port to bind to (default: 5000)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+
+    args = parser.parse_args()
+
+    app = create_app(data_folder=args.data_folder)
+    app.run(debug=args.debug, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

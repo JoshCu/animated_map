@@ -10,6 +10,20 @@ const map = new maplibregl.Map({
   zoom: 4,
 });
 
+// Check if data is auto-loaded on startup
+map.on("load", async () => {
+  try {
+    const response = await fetch("/api/config");
+    const config = await response.json();
+    if (config.auto_loaded) {
+      // Data is already loaded, fetch it automatically
+      await loadLocalFiles();
+    }
+  } catch (error) {
+    console.error("Error checking auto-load config:", error);
+  }
+});
+
 // Global variables
 let featureIds = [];
 let gpkgFilename = null;
