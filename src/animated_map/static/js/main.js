@@ -42,6 +42,10 @@ let selectedFlowpathId = null;
 let hoverPopup = null;
 let hoveredFeatureId = null; // Track which feature is hovered
 let timelineResampleInterval = 1;
+let flowAnimationEnabled = true;
+let flowAnimationId = null;
+let dashOffset = 0;
+let useLogarithmicScale = true;
 
 // File handling
 const dropZone = document.getElementById("dropZone");
@@ -628,6 +632,11 @@ function setupLayerFilters() {
       "fill-outline-color",
       "rgba(238, 51, 119, 1)",
     );
+    map.setPaintProperty(
+      "catchments",
+      "fill-outline-color",
+      "rgba(1, 1, 1, 0.15)",
+    );
   }
 
   // Initial visualization update (synchronous, blocking)
@@ -988,6 +997,20 @@ document.getElementById("toggleDepth").addEventListener("click", function () {
   updatePlot();
 });
 
+// Logarithmic scale toggle handler
+document
+  .getElementById("logarithmicScale")
+  .addEventListener("change", function () {
+    useLogarithmicScale = this.checked;
+    // Re-render the current visualization with the new scale
+    if (
+      map.getLayer("selected-flowpaths") &&
+      Object.keys(flowData).length > 0
+    ) {
+      updateVisualization(currentTimeIndex);
+    }
+  });
+
 // Timeline resample dropdown handler
 const timelineResampleSelect = document.getElementById(
   "timelineResampleSelect",
@@ -1090,15 +1113,33 @@ async function applyTimelineResample() {
 function getColorForFlow(value) {
   if (value <= 0) return "#94a3b8";
 
-  const normalized =
-    (Math.log(value + 1) - Math.log(minFlowValue + 1)) /
-    (Math.log(maxFlowValue + 1) - Math.log(minFlowValue + 1));
+  let normalized;
+  if (useLogarithmicScale) {
+    // Logarithmic scale
+    normalized =
+      (Math.log(value + 1) - Math.log(minFlowValue + 1)) /
+      (Math.log(maxFlowValue + 1) - Math.log(minFlowValue + 1));
+  } else {
+    // Linear scale
+    normalized = (value - minFlowValue) / (maxFlowValue - minFlowValue);
+  }
 
+  // background: linear-gradient(
+  //     to right,
+  //     #e02eff 0%,
+  //     #3b82f6 25%,
+  //     #06b6d4 40%,
+  //     #10b981 50%,
+  //     #f59e0b 80%,
+  //     #ef4444 100%
+  // );
   const colors = [
-    { pos: 0, r: 59, g: 130, b: 246 },
-    { pos: 0.25, r: 6, g: 182, b: 212 },
+    // { pos: 0, r: 224, g: 46, b: 255 },
+    { pos: 0, r: 104, g: 17, b: 130 },
+    { pos: 0.25, r: 59, g: 130, b: 246 },
+    { pos: 0.4, r: 6, g: 182, b: 212 },
     { pos: 0.5, r: 16, g: 185, b: 129 },
-    { pos: 0.75, r: 245, g: 158, b: 11 },
+    { pos: 0.8, r: 245, g: 158, b: 11 },
     { pos: 1, r: 239, g: 68, b: 68 },
   ];
 
@@ -1129,9 +1170,16 @@ function getColorForFlow(value) {
 function getWidthForFlow(value) {
   if (value <= 0) return 1;
 
-  const normalized =
-    (Math.log(value + 1) - Math.log(minFlowValue + 1)) /
-    (Math.log(maxFlowValue + 1) - Math.log(minFlowValue + 1));
+  let normalized;
+  if (useLogarithmicScale) {
+    // Logarithmic scale
+    normalized =
+      (Math.log(value + 1) - Math.log(minFlowValue + 1)) /
+      (Math.log(maxFlowValue + 1) - Math.log(minFlowValue + 1));
+  } else {
+    // Linear scale
+    normalized = (value - minFlowValue) / (maxFlowValue - minFlowValue);
+  }
 
   return 1 + normalized * 7;
 }
